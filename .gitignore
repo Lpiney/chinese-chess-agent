@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.DS_Store
+
+third_party/Pikafish/src/*.o
+third_party/Pikafish/src/.depend
+third_party/Pikafish/src/.build_date.txt
+third_party/Pikafish/src/.build_sha.txt
+third_party/Pikafish/src/pikafish
+third_party/Pikafish/src/pikafish.exe
+third_party/Pikafish/src/pikafish.nnue
