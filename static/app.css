@@ -71,7 +71,6 @@ body {
 }
 
 select,
-button,
 textarea {
   font: inherit;
 }
@@ -84,7 +83,8 @@ select {
   background: #ffffff;
 }
 
-button {
+.toolbar button,
+.composer-footer button {
   border: none;
   border-radius: 14px;
   background: var(--accent);
@@ -110,74 +110,77 @@ button:disabled {
   align-self: start;
 }
 
-.board-svg,
-.piece-layer,
-.hint-layer {
+.board-svg {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.piece-layer,
-.hint-layer {
-  pointer-events: none;
+.board-svg {
+  overflow: visible;
 }
 
-.piece {
-  position: absolute;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  border: 3px solid #9b7440;
-  background: #fbf3dd;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 25px;
-  font-weight: 700;
-  box-shadow: 0 10px 18px rgba(94, 60, 22, 0.16);
-  transform: translate(-50%, -50%);
-  pointer-events: auto;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
-}
-
-.piece.red {
-  color: var(--red);
-}
-
-.piece.black {
-  color: var(--dark);
-}
-
-.piece.selectable:hover {
-  transform: translate(-50%, -50%) scale(1.04);
-}
-
-.piece.selected {
-  border-color: #f5b301;
-  box-shadow: 0 0 0 6px rgba(245, 179, 1, 0.18);
-}
-
-.hint {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  pointer-events: auto;
+.piece-group {
   cursor: pointer;
 }
 
-.hint.move {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(47, 158, 68, 0.88);
-  box-shadow: 0 0 0 8px rgba(47, 158, 68, 0.16);
+.piece-circle,
+.piece-text {
+  transition: fill 160ms ease, stroke 160ms ease, stroke-width 160ms ease;
 }
 
-.hint.capture {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  border: 4px solid rgba(214, 51, 108, 0.85);
-  background: rgba(214, 51, 108, 0.06);
+.piece-group.selectable:hover {
+  transform: none;
+}
+
+.piece-group.selectable:hover .piece-circle {
+  fill: #fff4d6;
+  stroke: #c78a2c;
+  stroke-width: 4;
+}
+
+.piece-circle {
+  fill: #fbf3dd;
+  stroke: #9b7440;
+  stroke-width: 3;
+  filter: drop-shadow(0 10px 18px rgba(94, 60, 22, 0.16));
+}
+
+.piece-text {
+  font-size: 25px;
+  font-weight: 700;
+  dominant-baseline: middle;
+  text-anchor: middle;
+  user-select: none;
+  pointer-events: none;
+}
+
+.piece-text.red {
+  fill: var(--red);
+}
+
+.piece-text.black {
+  fill: var(--dark);
+}
+
+.piece-selected {
+  stroke: #f5b301;
+  stroke-width: 5;
+}
+
+.hint-move {
+  fill: rgba(47, 158, 68, 0.88);
+  stroke: rgba(47, 158, 68, 0.16);
+  stroke-width: 8;
+  cursor: pointer;
+}
+
+.hint-capture {
+  fill: rgba(214, 51, 108, 0.08);
+  stroke: rgba(214, 51, 108, 0.85);
+  stroke-width: 4;
+  cursor: pointer;
 }
 
 .status-text {

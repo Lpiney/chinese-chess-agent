@@ -15,15 +15,16 @@ const state = {
   },
 };
 
+const SVG_NS = "http://www.w3.org/2000/svg";
 const boardSvg = document.getElementById("board-svg");
-const pieceLayer = document.getElementById("piece-layer");
-const hintLayer = document.getElementById("hint-layer");
 const statusText = document.getElementById("status-text");
 const levelSelect = document.getElementById("level-select");
 const resetBtn = document.getElementById("reset-btn");
 const chatMessages = document.getElementById("chat-messages");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
+let pieceGroupLayer = null;
+let hintGroupLayer = null;
 
 function boardPoint(row, col) {
   return {
@@ -34,8 +35,6 @@ function boardPoint(row, col) {
 
 function drawBoardSvg() {
   const { marginX, marginY, stepX, stepY } = state.boardMetrics;
-  const width = 620;
-  const height = 736;
   const right = marginX + stepX * 8;
   const bottom = marginY + stepY * 9;
 
@@ -60,50 +59,80 @@ function drawBoardSvg() {
   lines.push(`<line x1="${marginX + stepX * 5}" y1="${marginY + stepY * 7}" x2="${marginX + stepX * 3}" y2="${marginY + stepY * 9}" />`);
 
   boardSvg.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%">
-      <g stroke="#6e4a22" stroke-width="3" fill="none" stroke-linecap="round">
-        ${lines.join("")}
-      </g>
-      <text x="${marginX + stepX * 1.5}" y="${marginY + stepY * 4.6}" text-anchor="middle" fill="#8d5b2a" font-size="34" font-weight="700">楚河</text>
-      <text x="${marginX + stepX * 5.5}" y="${marginY + stepY * 4.6}" text-anchor="middle" fill="#8d5b2a" font-size="34" font-weight="700">汉界</text>
-    </svg>
+    <g stroke="#6e4a22" stroke-width="3" fill="none" stroke-linecap="round">
+      ${lines.join("")}
+    </g>
+    <text x="${marginX + stepX * 1.5}" y="${marginY + stepY * 4.6}" text-anchor="middle" fill="#8d5b2a" font-size="34" font-weight="700">楚河</text>
+    <text x="${marginX + stepX * 5.5}" y="${marginY + stepY * 4.6}" text-anchor="middle" fill="#8d5b2a" font-size="34" font-weight="700">汉界</text>
+    <g id="hint-group"></g>
+    <g id="piece-group"></g>
   `;
+  hintGroupLayer = document.getElementById("hint-group");
+  pieceGroupLayer = document.getElementById("piece-group");
 }
 
 function renderBoard() {
-  pieceLayer.innerHTML = "";
-  hintLayer.innerHTML = "";
+  if (!pieceGroupLayer || !hintGroupLayer) {
+    drawBoardSvg();
+  }
+  pieceGroupLayer.innerHTML = "";
+  hintGroupLayer.innerHTML = "";
   statusText.textContent = currentStatusText();
 
   state.board.forEach((rowData, row) => {
     rowData.forEach((piece, col) => {
       if (!piece) return;
       const point = boardPoint(row, col);
-      const button = document.createElement("button");
-      button.className = `piece ${piece.startsWith("r") ? "red" : "black"}`;
-      if (state.currentPlayer === "r" && piece.startsWith("r") && !state.busy) {
-        button.classList.add("selectable");
-      }
-      if (state.selected && state.selected.row === row && state.selected.col === col) {
-        button.classList.add("selected");
-      }
-      button.style.left = `${point.x}px`;
-      button.style.top = `${point.y}px`;
-      button.textContent = state.pieceNames[piece];
-      button.addEventListener("click", () => onPieceClick(row, col, piece));
-      pieceLayer.appendChild(button);
+      const isSelectable = state.currentPlayer === "r" && piece.startsWith("r") && !state.busy;
+      const isSelected = Boolean(state.selected && state.selected.row === row && state.selected.col === col);
+      const pieceNode = createPieceNode(point.x, point.y, state.pieceNames[piece], piece, isSelectable, isSelected);
+      pieceNode.addEventListener("click", () => onPieceClick(row, col, piece));
+      pieceGroupLayer.appendChild(pieceNode);
     });
   });
 
   state.validMoves.forEach((move) => {
     const point = boardPoint(move.row, move.col);
     const targetPiece = state.board[move.row][move.col];
-    const hint = document.createElement("button");
-    hint.className = `hint ${targetPiece ? "capture" : "move"}`;
-    hint.style.left = `${point.x}px`;
-    hint.style.top = `${point.y}px`;
+    const hint = createHintNode(point.x, point.y, Boolean(targetPiece));
     hint.addEventListener("click", () => onHintClick(move.row, move.col));
-    hintLayer.appendChild(hint);
+    hintGroupLayer.appendChild(hint);
+  });
+}
+
+function createSvgNode(tag, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  Object.entries(attrs).forEach(([key, value]) => {
+    node.setAttribute(key, value);
+  });
+  return node;
+}
+
+function createPieceNode(x, y, text, piece, selectable, selected) {
+  const group = createSvgNode("g", { class: `piece-group${selectable ? " selectable" : ""}` });
+  const circle = createSvgNode("circle", {
+    cx: x,
+    cy: y,
+    r: 30,
+    class: `piece-circle${selected ? " piece-selected" : ""}`,
+  });
+  const label = createSvgNode("text", {
+    x,
+    y: y + 1,
+    class: `piece-text ${piece.startsWith("r") ? "red" : "black"}`,
+  });
+  label.textContent = text;
+  group.appendChild(circle);
+  group.appendChild(label);
+  return group;
+}
+
+function createHintNode(x, y, capture) {
+  return createSvgNode("circle", {
+    cx: x,
+    cy: y,
+    r: capture ? 32 : 9,
+    class: capture ? "hint-capture" : "hint-move",
   });
 }
 
@@ -113,10 +142,34 @@ function currentStatusText() {
   return state.currentPlayer === "r" ? "轮到红方行棋。" : "轮到黑方行棋。";
 }
 
+async function fetchJson(url, options) {
+  const response = await fetch(url, options);
+  const rawText = await response.text();
+  let data = null;
+
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch (error) {
+      throw new Error(`服务器返回了无效响应（${response.status}）`);
+    }
+  }
+
+  if (!response.ok) {
+    const message = data?.error || data?.message || `请求失败（${response.status}）`;
+    throw new Error(message);
+  }
+
+  return data;
+}
+
 async function loadState() {
-  const response = await fetch("/api/state");
-  const data = await response.json();
-  applyState(data);
+  try {
+    const data = await fetchJson("/api/state");
+    applyState(data);
+  } catch (error) {
+    statusText.textContent = `棋局加载失败：${error.message}`;
+  }
 }
 
 function applyState(data) {
@@ -131,19 +184,44 @@ function applyState(data) {
   renderBoard();
 }
 
+function cloneBoard(board) {
+  return board.map((row) => [...row]);
+}
+
+function applyEventToBoard(board, event) {
+  const nextBoard = cloneBoard(board);
+  nextBoard[event.from[0]][event.from[1]] = null;
+  nextBoard[event.to[0]][event.to[1]] = event.piece;
+  return nextBoard;
+}
+
 async function onPieceClick(row, col, piece) {
-  if (state.busy || state.winner || state.currentPlayer !== "r" || !piece.startsWith("r")) return;
+  if (state.busy || state.winner || state.currentPlayer !== "r") return;
+
+  if (state.selected) {
+    const selectedMove = state.validMoves.find((move) => move.row === row && move.col === col);
+    if (selectedMove) {
+      await onHintClick(row, col);
+      return;
+    }
+  }
+
+  if (!piece.startsWith("r")) return;
+
   if (state.selected && state.selected.row === row && state.selected.col === col) {
     state.selected = null;
     state.validMoves = [];
     renderBoard();
     return;
   }
-  const response = await fetch(`/api/legal-moves?row=${row}&col=${col}`);
-  const data = await response.json();
-  state.selected = { row, col };
-  state.validMoves = data.moves;
-  renderBoard();
+  try {
+    const data = await fetchJson(`/api/legal-moves?row=${row}&col=${col}`);
+    state.selected = { row, col };
+    state.validMoves = data.moves;
+    renderBoard();
+  } catch (error) {
+    addMessage("assistant", `读取可走步失败：${error.message}`);
+  }
 }
 
 async function onHintClick(toRow, toCol) {
@@ -156,51 +234,84 @@ async function onHintClick(toRow, toCol) {
     to_col: toCol,
   };
 
-  const response = await fetch("/api/move", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await response.json();
-  if (!data.ok) {
-    addMessage("assistant", `走子失败：${data.error}`);
+  try {
+    const data = await fetchJson("/api/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!data.ok) {
+      addMessage("assistant", `走子失败：${data.error}`);
+      state.busy = false;
+      await loadState();
+      return;
+    }
+
+    await animateEvents(data.events, data.state);
+  } catch (error) {
+    addMessage("assistant", `走子失败：${error.message}`);
     state.busy = false;
     await loadState();
     return;
   }
-
-  await animateEvents(data.events, data.state);
   state.busy = false;
 }
 
 async function animateEvents(events, finalState) {
+  let animatedBoard = cloneBoard(state.board);
   for (const event of events) {
-    await animateSingleEvent(event);
+    animatedBoard = await animateSingleEvent(event, animatedBoard);
   }
   applyState(finalState);
 }
 
-function animateSingleEvent(event) {
+function animateSingleEvent(event, boardBeforeMove) {
   return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = `piece ${event.piece.startsWith("r") ? "red" : "black"}`;
-    overlay.textContent = state.pieceNames[event.piece];
     const fromPoint = boardPoint(event.from[0], event.from[1]);
     const toPoint = boardPoint(event.to[0], event.to[1]);
-    overlay.style.left = `${fromPoint.x}px`;
-    overlay.style.top = `${fromPoint.y}px`;
-    overlay.style.transition = "left 240ms ease, top 240ms ease";
-    pieceLayer.appendChild(overlay);
+    const boardAfterMove = applyEventToBoard(boardBeforeMove, event);
 
-    requestAnimationFrame(() => {
-      overlay.style.left = `${toPoint.x}px`;
-      overlay.style.top = `${toPoint.y}px`;
-    });
+    state.board = boardBeforeMove;
+    state.board[event.from[0]][event.from[1]] = null;
+    state.board[event.to[0]][event.to[1]] = null;
+    state.selected = null;
+    state.validMoves = [];
+    renderBoard();
 
-    setTimeout(() => {
-      overlay.remove();
-      resolve();
-    }, 260);
+    const overlay = createPieceNode(
+      fromPoint.x,
+      fromPoint.y,
+      state.pieceNames[event.piece],
+      event.piece,
+      false,
+      false,
+    );
+    const overlayCircle = overlay.querySelector("circle");
+    const overlayText = overlay.querySelector("text");
+    pieceGroupLayer.appendChild(overlay);
+    const startTime = performance.now();
+    const duration = 240;
+
+    function step(now) {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - (1 - progress) * (1 - progress);
+      const cx = fromPoint.x + (toPoint.x - fromPoint.x) * eased;
+      const cy = fromPoint.y + (toPoint.y - fromPoint.y) * eased;
+      overlayCircle.setAttribute("cx", cx);
+      overlayCircle.setAttribute("cy", cy);
+      overlayText.setAttribute("x", cx);
+      overlayText.setAttribute("y", cy + 1);
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        overlay.remove();
+        state.board = boardAfterMove;
+        renderBoard();
+        resolve(boardAfterMove);
+      }
+    }
+
+    requestAnimationFrame(step);
   });
 }
 
@@ -235,13 +346,12 @@ async function sendMessage() {
 
   sendBtn.disabled = true;
   try {
-    const response = await fetch("/api/chat", {
+    const data = await fetchJson("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
     });
-    const data = await response.json();
-    typingBubble.textContent = formatAssistantMessage(data.message);
+    typingBubble.textContent = formatAssistantMessage(data.message || data.error || "没有收到回复。");
     typingBubble.classList.remove("typing");
   } catch (error) {
     typingBubble.textContent = `调用失败：${error.message}`;
@@ -255,22 +365,28 @@ async function sendMessage() {
 async function resetGame() {
   if (state.busy) return;
   state.busy = true;
-  const response = await fetch("/api/reset", { method: "POST" });
-  const data = await response.json();
-  applyState(data.state);
-  addMessage("assistant", "棋局已经重新开始。你可以继续问我：现在第一步该怎么走？");
+  try {
+    const data = await fetchJson("/api/reset", { method: "POST" });
+    applyState(data.state);
+    addMessage("assistant", "棋局已经重新开始。你可以继续问我：现在第一步该怎么走？");
+  } catch (error) {
+    addMessage("assistant", `重置失败：${error.message}`);
+  }
   state.busy = false;
 }
 
 async function changeLevel() {
-  const response = await fetch("/api/level", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ level: levelSelect.value }),
-  });
-  const data = await response.json();
-  applyState(data.state);
-  addMessage("assistant", `Pikafish 难度已切换为 ${levelSelect.options[levelSelect.selectedIndex].text}。`);
+  try {
+    const data = await fetchJson("/api/level", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level: levelSelect.value }),
+    });
+    applyState(data.state);
+    addMessage("assistant", `Pikafish 难度已切换为 ${levelSelect.options[levelSelect.selectedIndex].text}。`);
+  } catch (error) {
+    addMessage("assistant", `切换难度失败：${error.message}`);
+  }
 }
 
 drawBoardSvg();
