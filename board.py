@@ -1,4 +1,4 @@
-"""中国象棋棋盘与基础走子规则实现。"""
+"""中国象棋棋盘与规则实现。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,6 @@ class ChineseChessBoard:
         self.winner = None
 
     def _create_initial_board(self) -> list[list[str | None]]:
-        """创建标准开局棋盘。"""
         board = [[None for _ in range(self.COLS)] for _ in range(self.ROWS)]
 
         board[0] = ["bR", "bH", "bE", "bA", "bG", "bA", "bE", "bH", "bR"]
@@ -69,22 +68,17 @@ class ChineseChessBoard:
         return board
 
     def display(self) -> str:
-        """返回适合终端显示的棋盘文本。"""
         lines = ["   " + " ".join(str(col) for col in range(self.COLS))]
         for row_index, row in enumerate(self.board):
-            cells = []
-            for piece in row:
-                cells.append(self.PIECE_NAMES.get(piece, "・"))
+            cells = [self.PIECE_NAMES.get(piece, "・") for piece in row]
             lines.append(f"{row_index:>2} " + " ".join(cells))
         return "\n".join(lines)
 
     def get_piece(self, row: int, col: int) -> str | None:
-        """返回指定坐标上的棋子。"""
         self._validate_coordinates(row, col)
         return self.board[row][col]
 
     def clone(self) -> "ChineseChessBoard":
-        """返回当前棋盘的一个深拷贝。"""
         new_board = ChineseChessBoard()
         new_board.board = deepcopy(self.board)
         new_board.current_player = self.current_player
@@ -97,7 +91,6 @@ class ChineseChessBoard:
         col: int,
         color: str | None = None,
     ) -> list[tuple[int, int]]:
-        """返回某个棋子当前所有合法落点。"""
         self._validate_coordinates(row, col)
         piece = self.board[row][col]
         active_color = self.current_player if color is None else color
@@ -128,7 +121,6 @@ class ChineseChessBoard:
         self,
         color: str | None = None,
     ) -> list[tuple[tuple[int, int], tuple[int, int]]]:
-        """返回某一方当前所有合法走法。"""
         active_color = self.current_player if color is None else color
         all_moves: list[tuple[tuple[int, int], tuple[int, int]]] = []
 
@@ -142,13 +134,10 @@ class ChineseChessBoard:
         return all_moves
 
     def has_any_valid_move(self, color: str | None = None) -> bool:
-        """判断某一方是否至少还有一步合法走法。"""
         return len(self.get_all_valid_moves(color)) > 0
 
     def to_fen(self) -> str:
-        """将当前棋盘转换为 Pikafish 使用的 FEN。"""
         fen_rows: list[str] = []
-
         for row in range(self.ROWS):
             empty_count = 0
             fen_row = ""
@@ -175,22 +164,16 @@ class ChineseChessBoard:
         to_row: int,
         to_col: int,
     ) -> str:
-        """将内部坐标转换为 Pikafish UCI 走法。"""
         return f"{self._coord_to_uci_square(from_row, from_col)}{self._coord_to_uci_square(to_row, to_col)}"
 
     def uci_to_move(self, uci_move: str) -> tuple[tuple[int, int], tuple[int, int]]:
-        """将 Pikafish UCI 走法转换为内部坐标。"""
         if len(uci_move) != 4:
             raise ValueError("UCI 走法格式不正确。")
-        from_square = uci_move[:2]
-        to_square = uci_move[2:]
-        return self._uci_square_to_coord(from_square), self._uci_square_to_coord(to_square)
+        return self._uci_square_to_coord(uci_move[:2]), self._uci_square_to_coord(uci_move[2:])
 
     def _coord_to_uci_square(self, row: int, col: int) -> str:
         self._validate_coordinates(row, col)
-        file_char = chr(ord("a") + col)
-        rank_char = str(9 - row)
-        return f"{file_char}{rank_char}"
+        return f"{chr(ord('a') + col)}{9 - row}"
 
     def _uci_square_to_coord(self, square: str) -> tuple[int, int]:
         if len(square) != 2:
@@ -202,7 +185,6 @@ class ChineseChessBoard:
         return row, col
 
     def move_piece(self, from_row: int, from_col: int, to_row: int, to_col: int) -> None:
-        """执行一步合法走子。"""
         self._validate_coordinates(from_row, from_col)
         self._validate_coordinates(to_row, to_col)
 
@@ -236,14 +218,12 @@ class ChineseChessBoard:
             self.current_player = "b" if self.current_player == "r" else "r"
 
     def is_in_check(self, color: str) -> bool:
-        """判断某一方将帅是否被攻击。"""
         general_position = self._find_general(color)
         if general_position is None:
             return True
 
         general_row, general_col = general_position
         enemy_color = "b" if color == "r" else "r"
-
         for row in range(self.ROWS):
             for col in range(self.COLS):
                 piece = self.board[row][col]
@@ -274,32 +254,29 @@ class ChineseChessBoard:
     ) -> bool:
         if from_row == to_row and from_col == to_col:
             return False
-
-        if piece[1] == "R":
+        piece_type = piece[1]
+        if piece_type == "R":
             return self._validate_rook_move(from_row, from_col, to_row, to_col)
-        if piece[1] == "H":
+        if piece_type == "H":
             return self._validate_horse_move(from_row, from_col, to_row, to_col)
-        if piece[1] == "E":
+        if piece_type == "E":
             return self._validate_elephant_move(piece, from_row, from_col, to_row, to_col)
-        if piece[1] == "A":
+        if piece_type == "A":
             return self._validate_advisor_move(piece, to_row, to_col, from_row, from_col)
-        if piece[1] == "G":
+        if piece_type == "G":
             return self._validate_general_move(piece, from_row, from_col, to_row, to_col)
-        if piece[1] == "C":
+        if piece_type == "C":
             return self._validate_cannon_move(from_row, from_col, to_row, to_col)
-        if piece[1] == "S":
+        if piece_type == "S":
             return self._validate_soldier_move(piece, from_row, from_col, to_row, to_col)
         return False
 
     def _can_attack(self, piece: str, from_row: int, from_col: int, to_row: int, to_col: int) -> bool:
-        """判断某个棋子是否能攻击目标位置。"""
         target = self.board[to_row][to_col]
-
         if piece[1] == "C":
             if target is None:
                 return False
             return self._validate_cannon_move(from_row, from_col, to_row, to_col)
-
         return self._is_valid_piece_move(piece, from_row, from_col, to_row, to_col)
 
     def _validate_rook_move(self, from_row: int, from_col: int, to_row: int, to_col: int) -> bool:
@@ -310,7 +287,6 @@ class ChineseChessBoard:
     def _validate_horse_move(self, from_row: int, from_col: int, to_row: int, to_col: int) -> bool:
         row_diff = to_row - from_row
         col_diff = to_col - from_col
-
         if (abs(row_diff), abs(col_diff)) not in {(2, 1), (1, 2)}:
             return False
 
@@ -320,7 +296,6 @@ class ChineseChessBoard:
         else:
             block_row = from_row
             block_col = from_col + col_diff // 2
-
         return self.board[block_row][block_col] is None
 
     def _validate_elephant_move(
@@ -365,19 +340,15 @@ class ChineseChessBoard:
         to_row: int,
         to_col: int,
     ) -> bool:
-        row_diff = abs(to_row - from_row)
-        col_diff = abs(to_col - from_col)
-        if row_diff + col_diff != 1:
+        if abs(to_row - from_row) + abs(to_col - from_col) != 1:
             return False
         return self._is_in_palace(piece[0], to_row, to_col)
 
     def _validate_cannon_move(self, from_row: int, from_col: int, to_row: int, to_col: int) -> bool:
         if from_row != to_row and from_col != to_col:
             return False
-
         between = self._count_pieces_between(from_row, from_col, to_row, to_col)
         target = self.board[to_row][to_col]
-
         if target is None:
             return between == 0
         return between == 1
@@ -392,7 +363,6 @@ class ChineseChessBoard:
     ) -> bool:
         row_diff = to_row - from_row
         col_diff = abs(to_col - from_col)
-
         if piece[0] == "r":
             forward = -1
             crossed_river = from_row <= 4
@@ -413,7 +383,6 @@ class ChineseChessBoard:
 
     def _count_pieces_between(self, from_row: int, from_col: int, to_row: int, to_col: int) -> int:
         count = 0
-
         if from_row == to_row:
             step = 1 if to_col > from_col else -1
             for col in range(from_col + step, to_col, step):
@@ -426,18 +395,15 @@ class ChineseChessBoard:
                     count += 1
         else:
             return -1
-
         return count
 
     def _generals_face_each_other(self) -> bool:
         red_general = self._find_general("r")
         black_general = self._find_general("b")
-
         if red_general is None or black_general is None:
             return False
         if red_general[1] != black_general[1]:
             return False
-
         col = red_general[1]
         start = min(red_general[0], black_general[0]) + 1
         end = max(red_general[0], black_general[0])

@@ -2,7 +2,8 @@
 
 import unittest
 
-from src.board import ChineseChessBoard
+import board_serializer
+from board import ChineseChessBoard
 
 
 class ChineseChessBoardTestCase(unittest.TestCase):
@@ -94,6 +95,25 @@ class ChineseChessBoardTestCase(unittest.TestCase):
 
     def test_uci_to_move_for_red_soldier_forward(self) -> None:
         self.assertEqual(self.board.uci_to_move("a3a4"), ((6, 0), (5, 0)))
+
+    def test_serialize_board_contains_bestmove(self) -> None:
+        serialized = board_serializer.serialize_board(
+            board=self.board,
+            move_history=["a3a4"],
+            engine_analysis={"bestmove": "h2e2", "depth": 9},
+        )
+        self.assertEqual(serialized["engine_analysis"]["bestmove"], "h2e2")
+        self.assertEqual(serialized["move_history"], ["a3a4"])
+
+    def test_build_user_prompt_contains_question_and_engine_move(self) -> None:
+        serialized = board_serializer.serialize_board(
+            board=self.board,
+            move_history=[],
+            engine_analysis={"bestmove": "h2e2", "score_type": "cp", "score_value": 35, "depth": 9, "pv": ["h2e2"]},
+        )
+        prompt = board_serializer.build_user_prompt(serialized, "下一步走什么？")
+        self.assertIn("下一步走什么", prompt)
+        self.assertIn("h2e2", prompt)
 
 
 if __name__ == "__main__":

@@ -47,3 +47,44 @@ description:
 - 新增 .gitignore，忽略 Python 缓存文件和 Pikafish 编译产物。
 - 新增 scripts/setup_pikafish.sh，提供子模块初始化和引擎编译的一键脚本。
 - 更新 README 和 requirements，补充脚本使用方式与 Git 说明。
+
+version: 0.5.0
+date: 2026-05-19
+description:
+- 参考 Lpiney/chess-agent 的结构，将项目重构为根目录主模块风格。
+- 新增 board_serializer.py、deepseek_client.py、chess_agent.py 和 config.example.yaml。
+- 新增 requirements.txt，补充 DeepSeek 所需 Python 依赖。
+- 将主入口改为 main.py，并重建 GUI 为左侧棋盘 + 右侧聊天侧栏布局。
+- 聊天侧栏接入 DeepSeek v4 flash，分析流程改为先由 Pikafish 求最优步，再由 LLM 解释原因。
+- 更新测试到新结构，并补充序列化提示词相关测试。
+- 更新 README 和 docs/requirements，补充新结构、DeepSeek 配置和运行说明。
+
+version: 0.5.1
+date: 2026-05-19
+description:
+- 新增 env 目录，用于集中存放环境相关文件。
+- 新增 env/conda-environment.yml，支持一键创建 Conda 环境。
+- 新增 env/README.md，说明环境创建与本地配置方式。
+- 更新 README 和 docs/requirements，将环境准备流程切换到 env 目录。
+
+version: 0.5.2
+date: 2026-05-19
+description:
+- 将 DeepSeek 默认 base_url 修正为 https://api.deepseek.com。
+- 修复右侧聊天栏显示异常，补充聊天区域宽度同步逻辑。
+- 调整聊天侧栏颜色对比，增强标题、正文和输入区域可见性。
+
+version: 0.6.0
+date: 2026-05-19
+description:
+- 将前端从 Tkinter 窗口重构为 Web 页面。
+- 新增 Flask 后端入口，提供棋盘状态、走子、重置、难度切换和聊天 API。
+- 新增 templates/index.html 与 static/app.css、static/app.js，实现浏览器棋盘和网页聊天侧栏。
+- 保留 Pikafish 与 DeepSeek 分析链路，但改由 Web 界面驱动。
+- 更新 README、requirements 与 env 文档，切换为浏览器运行说明。
+
+version: 0.6.1
+date: 2026-05-19
+description:
+- 新增 scripts/stop_web.sh，用于停止本地 Web 服务。
+- 更新 README 和 docs/requirements，补充停止服务的方法。

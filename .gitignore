@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 
 .DS_Store
+config.yaml
 
 third_party/Pikafish/src/*.o
 third_party/Pikafish/src/.depend

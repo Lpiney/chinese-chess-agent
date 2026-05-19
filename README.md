@@ -1,134 +1,127 @@
-## 项目简介
+# Chinese Chess Agent
 
-本项目是一个面向 Python 初学者的中国象棋 Agent 学习项目。
-
-当前阶段的目标不是一次性完成完整的智能体系统，而是先从最基础的棋盘和走子规则开始，逐步搭建一个清晰、容易学习、方便扩展的项目。
-
-项目后续计划会逐步加入以下能力：
-
-1. 中国象棋棋盘与规则引擎。
-2. 与象棋引擎对接，让机器人可以自动走子。
-3. 接入大模型，对机器人推荐走法进行讲解。
-4. 通过完整项目帮助初学者学习 Python 语法、模块化设计、测试和文档维护。
-
-## 当前版本功能
-
-当前版本已经实现桌面版中国象棋棋盘程序，包含以下内容：
-
-1. 初始化标准中国象棋棋盘。
-2. 在桌面窗口中显示棋盘。
-3. 支持鼠标点击选择棋子和落点。
-4. 支持高亮显示当前棋子的合法落点。
-5. 支持流畅的走子动画效果。
-6. 使用官方 Pikafish 子模块作为黑方对手。
-7. 支持三档机器人难度：`Beginner`、`Medium`、`Master`。
-8. 支持红黑双方轮流下棋。
-9. 按照中国象棋基本规则校验走法。
-10. 支持将军合法性检查，避免己方老将暴露。
-11. 提供基础自动化测试。
-
-当前版本不包含以下能力：
-
-1. LLM 棋局讲解。
-2. 对局存档与复盘。
+中国象棋教学 Web Demo：左侧是浏览器里的中国象棋棋盘，右侧是类似微信 / WhatsApp 的聊天窗口。玩家执红，Pikafish 执黑；当玩家在右侧提问时，系统会先把当前棋局交给 Pikafish 求出最优推荐，再把引擎结论交给 `deepseek-v4-flash` 解释为什么这一步最好。
 
 ## 项目结构
 
 ```text
 chinese-chess-agent/
-├── .gitmodules
-├── README.md
+├── main.py                 # Flask Web 入口
+├── board.py                # 中国象棋棋盘规则
+├── pikafish_engine.py      # Pikafish UCI 封装
+├── board_serializer.py     # 棋局状态序列化
+├── deepseek_client.py      # DeepSeek API 客户端
+├── chess_agent.py          # Pikafish + DeepSeek 编排模块
+├── templates/
+│   └── index.html          # Web 页面模板
+├── static/
+│   ├── app.css             # 页面样式
+│   └── app.js              # 前端交互逻辑
+├── config.example.yaml     # DeepSeek 配置示例
+├── requirements.txt        # Python 依赖
+├── env/
+│   ├── conda-environment.yml
+│   └── README.md
 ├── docs/
 │   ├── log.md
 │   └── requirements.md
-├── src/
-│   ├── __init__.py
-│   ├── board.py
-│   ├── gui.py
-│   └── main.py
-│   └── pikafish_engine.py
-├── third_party/
-│   └── Pikafish/
-└── tests/
-    └── test_board.py
+├── tests/
+│   └── test_board.py
+├── scripts/
+│   └── setup_pikafish.sh
+└── third_party/
+    └── Pikafish/           # 官方子模块
 ```
 
-## 运行方法
+## 功能
 
-先初始化子模块并编译 Pikafish：
+1. 浏览器棋盘交互。
+2. 鼠标点击走子与合法落点高亮。
+3. Pikafish 作为黑方机器人。
+4. 三档难度：`Beginner`、`Medium`、`Master`。
+5. 右侧网页聊天窗口。
+6. 用户提问后：
+   当前棋局 → Pikafish 分析 → DeepSeek 解释推荐走法。
+
+## 环境准备
+
+推荐使用 Conda：
 
 ```bash
-git submodule update --init --recursive
-cd third_party/Pikafish/src
-make -j build ARCH=native
-cd ../../..
+conda env create -f env/conda-environment.yml
+conda activate chinese-chess-agent
 ```
 
-也可以直接执行一键脚本：
+如果你想手动安装：
+
+```bash
+conda create -n chinese-chess-agent python=3.11
+conda activate chinese-chess-agent
+pip install -r requirements.txt
+```
+
+## 配置 DeepSeek
+
+先复制配置：
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+然后填写你的 API Key：
+
+```yaml
+deepseek:
+  api_key: "你的真实 API Key"
+  base_url: "https://api.deepseek.com"
+  model_name: "deepseek-v4-flash"
+```
+
+## 初始化 Pikafish
 
 ```bash
 bash scripts/setup_pikafish.sh
 ```
 
-确保本机安装了 Python 3，并且本地 Python 带有 `tkinter` 图形库。
-
-运行命令：
+## 运行
 
 ```bash
-python3 -m src.main
+python main.py
 ```
 
-程序启动后，会打开桌面棋盘窗口。
+程序会启动本地 Web 服务，并自动尝试打开浏览器：
 
-操作方式：
+```text
+http://127.0.0.1:5000
+```
 
-1. 玩家默认执红，机器人默认执黑。
-2. 点击当前行棋方的棋子。
-3. 棋盘会高亮显示该棋子的合法落点。
-4. 再点击目标位置完成走子。
-5. 走子时会播放平滑动画。
-6. 玩家走完后，机器人会自动思考并落子。
-7. 顶部可以切换机器人难度：`Beginner`、`Medium`、`Master`。
+## 停止服务
 
-## 引擎说明
-
-当前项目使用 [official-pikafish/Pikafish](https://github.com/official-pikafish/Pikafish) 作为官方子模块引擎。
-
-图形界面通过 UCI 协议与 Pikafish 通信，三档难度通过不同搜索时间和深度实现：
-
-1. `Beginner`：较短思考时间，适合新手。
-2. `Medium`：中等思考时间，适合一般玩家。
-3. `Master`：更深搜索，适合较强对手。
-
-## Git 说明
-
-当前仓库已经按 Git submodule 方式接入 Pikafish。
-
-建议首次克隆后执行：
+如果服务正在当前终端前台运行，直接按：
 
 ```bash
-git submodule update --init --recursive
+Ctrl + C
 ```
 
-## 运行测试
+如果你已经关掉了原来的终端，可以执行：
 
 ```bash
-python3 -m unittest discover -s tests
+bash scripts/stop_web.sh
 ```
 
-## 开发原则
+## 使用方式
 
-本项目遵循以下原则：
+1. 在左侧棋盘点击红方棋子。
+2. 点击高亮落点完成走子。
+3. Pikafish 会自动回应。
+4. 右侧聊天区可直接提问：
+   - “下一步该怎么走？”
+   - “为什么这步最好？”
+   - “现在谁更好？”
+   - “这步是不是在保护将？”
 
-1. 代码尽量简单清晰，适合初学者阅读。
-2. 关键逻辑使用中文注释说明。
-3. 每次更新都同步维护测试。
-4. 每次更新都同步维护 README 和日志。
+## 测试
 
-## 后续计划
-
-在当前版本基础上，下一阶段会考虑：
-
-1. 强化机器人棋力。
-2. 加入悔棋、复盘和重新开局之外的更多控制项。
-3. 加入大模型讲解能力。
+```bash
+python -m unittest discover -s tests
+```

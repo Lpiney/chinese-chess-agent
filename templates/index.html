@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>中国象棋 Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  </head>
+  <body>
+    <div class="app-shell">
+      <section class="board-panel">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <label for="level-select">Pikafish 难度</label>
+            <select id="level-select">
+              <option value="beginner">Beginner</option>
+              <option value="medium" selected>Medium</option>
+              <option value="master">Master</option>
+            </select>
+          </div>
+          <button id="reset-btn">重新开始</button>
+        </div>
+
+        <div class="board-wrap">
+          <svg id="board-svg" viewBox="0 0 620 690" class="board-svg" aria-label="中国象棋棋盘"></svg>
+          <div id="piece-layer" class="piece-layer"></div>
+          <div id="hint-layer" class="hint-layer"></div>
+        </div>
+
+        <div id="status-text" class="status-text">正在加载棋局…</div>
+        <div class="board-help">操作方式：点击红方棋子，再点击高亮落点。右侧聊天区可以直接提问。</div>
+      </section>
+
+      <aside class="chat-panel">
+        <header class="chat-header">
+          <div>
+            <h1>DeepSeek 象棋老师</h1>
+            <p>模型：deepseek-v4-flash</p>
+          </div>
+        </header>
+
+        <div id="chat-messages" class="chat-messages"></div>
+
+        <div class="chat-composer">
+          <textarea id="chat-input" placeholder="例如：下一步该怎么走？为什么这步最好？"></textarea>
+          <div class="composer-footer">
+            <span class="composer-hint">回复会先基于 Pikafish 的当前分析，再由 LLM 解释。</span>
+            <button id="send-btn">发送</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+  </html>
