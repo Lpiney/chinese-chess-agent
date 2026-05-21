@@ -1,7 +1,9 @@
-deepseek:
-  api_key: "在这里填写你的 DeepSeek API Key"
-  base_url: "https://api.deepseek.com"
-  model_name: "deepseek-v4-flash"
+llm:
+  api_key: "在这里填写你的阿里云百炼 API Key"
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model_name: "qwen3.6-max-preview"
+  enable_thinking: false
+  preserve_thinking: false
   temperature: 0.2
-  max_tokens: 1200
+  max_tokens: 500
   timeout: 60

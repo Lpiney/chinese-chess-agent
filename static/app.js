@@ -7,6 +7,12 @@ const state = {
   validMoves: [],
   busy: false,
   level: "medium",
+  mode: "free",
+  courses: [],
+  activeCourseId: null,
+  activeSectionIndex: 0,
+  sectionCount: 0,
+  sectionType: null,
   boardMetrics: {
     marginX: 70,
     marginY: 70,
@@ -19,10 +25,17 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const boardSvg = document.getElementById("board-svg");
 const statusText = document.getElementById("status-text");
 const levelSelect = document.getElementById("level-select");
+const modeSelect = document.getElementById("mode-select");
+const courseControls = document.getElementById("course-controls");
+const courseSelect = document.getElementById("course-select");
+const nextSectionBtn = document.getElementById("next-section-btn");
+const stopCourseBtn = document.getElementById("stop-course-btn");
 const resetBtn = document.getElementById("reset-btn");
 const chatMessages = document.getElementById("chat-messages");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
+const quickAskBtn = document.getElementById("quick-ask-btn");
+const clearChatBtn = document.getElementById("clear-chat-btn");
 let pieceGroupLayer = null;
 let hintGroupLayer = null;
 
@@ -37,6 +50,8 @@ function drawBoardSvg() {
   const { marginX, marginY, stepX, stepY } = state.boardMetrics;
   const right = marginX + stepX * 8;
   const bottom = marginY + stepY * 9;
+  const files = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
+  const ranks = ["9", "8", "7", "6", "5", "4", "3", "2", "1", "0"];
 
   const lines = [];
   for (let col = 0; col < 9; col += 1) {
@@ -58,10 +73,23 @@ function drawBoardSvg() {
   lines.push(`<line x1="${marginX + stepX * 3}" y1="${marginY + stepY * 7}" x2="${marginX + stepX * 5}" y2="${marginY + stepY * 9}" />`);
   lines.push(`<line x1="${marginX + stepX * 5}" y1="${marginY + stepY * 7}" x2="${marginX + stepX * 3}" y2="${marginY + stepY * 9}" />`);
 
+  const fileLabels = files.map((file, index) => {
+    const x = marginX + stepX * index;
+    return `<text x="${x}" y="${marginY - 38}" text-anchor="middle" fill="#8d5b2a" font-size="18" font-weight="700">${file}</text>
+    <text x="${x}" y="${bottom + 46}" text-anchor="middle" fill="#8d5b2a" font-size="18" font-weight="700">${file}</text>`;
+  }).join("");
+  const rankLabels = ranks.map((rank, index) => {
+    const y = marginY + stepY * index + 6;
+    return `<text x="${marginX - 42}" y="${y}" text-anchor="middle" fill="#8d5b2a" font-size="18" font-weight="700">${rank}</text>
+    <text x="${right + 42}" y="${y}" text-anchor="middle" fill="#8d5b2a" font-size="18" font-weight="700">${rank}</text>`;
+  }).join("");
+
   boardSvg.innerHTML = `
     <g stroke="#6e4a22" stroke-width="3" fill="none" stroke-linecap="round">
       ${lines.join("")}
     </g>
+    ${fileLabels}
+    ${rankLabels}
     <text x="${marginX + stepX * 1.5}" y="${marginY + stepY * 4.6}" text-anchor="middle" fill="#8d5b2a" font-size="34" font-weight="700">楚河</text>
     <text x="${marginX + stepX * 5.5}" y="${marginY + stepY * 4.6}" text-anchor="middle" fill="#8d5b2a" font-size="34" font-weight="700">汉界</text>
     <g id="hint-group"></g>
@@ -83,7 +111,8 @@ function renderBoard() {
     rowData.forEach((piece, col) => {
       if (!piece) return;
       const point = boardPoint(row, col);
-      const isSelectable = state.currentPlayer === "r" && piece.startsWith("r") && !state.busy;
+      const currentSide = state.currentPlayer;
+      const isSelectable = piece.startsWith(currentSide) && !state.busy;
       const isSelected = Boolean(state.selected && state.selected.row === row && state.selected.col === col);
       const pieceNode = createPieceNode(point.x, point.y, state.pieceNames[piece], piece, isSelectable, isSelected);
       pieceNode.addEventListener("click", () => onPieceClick(row, col, piece));
@@ -139,6 +168,9 @@ function createHintNode(x, y, capture) {
 function currentStatusText() {
   if (state.winner === "r") return "对局结束，红方获胜。";
   if (state.winner === "b") return "对局结束，黑方获胜。";
+  if (state.mode === "course" && state.activeCourseId) {
+    return `课程模式：第 ${state.activeSectionIndex + 1}/${state.sectionCount} 节`;
+  }
   return state.currentPlayer === "r" ? "轮到红方行棋。" : "轮到黑方行棋。";
 }
 
@@ -163,13 +195,16 @@ async function fetchJson(url, options) {
   return data;
 }
 
-async function loadState() {
-  try {
-    const data = await fetchJson("/api/state");
-    applyState(data);
-  } catch (error) {
-    statusText.textContent = `棋局加载失败：${error.message}`;
-  }
+function applyCourseState(courseState) {
+  const active = Boolean(courseState?.active);
+  state.mode = active ? "course" : "free";
+  state.activeCourseId = active ? courseState.course_id : null;
+  state.activeSectionIndex = active ? courseState.section_index : 0;
+  state.sectionCount = active ? courseState.section_count : 0;
+  state.sectionType = active ? courseState.section_type : null;
+  modeSelect.value = state.mode;
+  courseControls.classList.toggle("hidden", !active);
+  courseSelect.value = active ? courseState.course_id : (state.courses[0]?.id || "");
 }
 
 function applyState(data) {
@@ -181,7 +216,17 @@ function applyState(data) {
   state.selected = null;
   state.validMoves = [];
   levelSelect.value = data.level;
+  applyCourseState(data.course_state);
   renderBoard();
+}
+
+function maybeAnnounceWinner(stateData) {
+  if (!stateData?.winner) return;
+  if (state.mode === "course") {
+    addMessage("assistant", stateData.winner === "r" ? "这一节已经走成将死，红方获胜。" : "这一节已经结束，黑方获胜。");
+    return;
+  }
+  addMessage("assistant", stateData.winner === "r" ? "本局结束，红方获胜。" : "本局结束，黑方获胜。");
 }
 
 function cloneBoard(board) {
@@ -195,8 +240,203 @@ function applyEventToBoard(board, event) {
   return nextBoard;
 }
 
+function fillCourseSelect(courses) {
+  courseSelect.innerHTML = "";
+  courses.forEach((course) => {
+    const option = document.createElement("option");
+    option.value = course.id;
+    option.textContent = course.title;
+    courseSelect.appendChild(option);
+  });
+}
+
+async function loadCourses() {
+  const data = await fetchJson("/api/courses");
+  state.courses = data.courses || [];
+  fillCourseSelect(state.courses);
+}
+
+async function loadState() {
+  const data = await fetchJson("/api/state");
+  applyState(data);
+}
+
+async function loadCourseState() {
+  const data = await fetchJson("/api/course/state");
+  applyCourseState(data);
+}
+
+function addMessage(role, text, extraClass = "") {
+  const row = document.createElement("div");
+  row.className = `message-row ${role}`;
+  const bubble = document.createElement("div");
+  bubble.className = `message-bubble ${extraClass}`.trim();
+  bubble.dataset.rawText = String(text || "");
+  bubble.textContent = role === "assistant" ? formatAssistantMessage(text) : text;
+  row.appendChild(bubble);
+  chatMessages.appendChild(row);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return bubble;
+}
+
+function setAssistantBubbleText(bubble, text) {
+  bubble.dataset.rawText = String(text || "");
+  bubble.textContent = formatAssistantMessage(text);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function appendAssistantBubbleText(bubble, chunk) {
+  const nextText = `${bubble.dataset.rawText || ""}${chunk || ""}`;
+  setAssistantBubbleText(bubble, nextText);
+}
+
+function decorateFallbackMessage(text, source) {
+  if (source === "fallback") {
+    return `本轮为本地兜底讲解，不是完整 LLM 回复。\n\n${text}`;
+  }
+  return text;
+}
+
+function formatAssistantMessage(text) {
+  return String(text || "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/^-\s+/gm, "• ")
+    .replace(/`/g, "")
+    .trim();
+}
+
+function appendSectionMessage(courseState) {
+  if (!courseState?.active || !courseState.section_content) return;
+  const header = `${courseState.course_title}\n${courseState.section_title}`;
+  const hintText = (courseState.section_hints || []).length
+    ? `\n\n提示：\n${courseState.section_hints.map((hint) => `- ${hint}`).join("\n")}`
+    : "";
+  addMessage("assistant", `${header}\n\n${courseState.section_content}${hintText}`);
+}
+
+async function startLesson(courseId) {
+  const data = await fetchJson("/api/course/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ course_id: courseId, lesson_index: 0 }),
+  });
+  applyState(data.state);
+  appendSectionMessage(data.course_state);
+}
+
+async function fetchEventStream(url, options, handlers) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `请求失败（${response.status}）`);
+  }
+  if (!response.body) {
+    throw new Error("浏览器不支持流式响应。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      handleSseEvent(rawEvent, handlers);
+      boundary = buffer.indexOf("\n\n");
+    }
+
+    if (done) {
+      if (buffer.trim()) {
+        handleSseEvent(buffer, handlers);
+      }
+      break;
+    }
+  }
+}
+
+function handleSseEvent(rawEvent, handlers) {
+  if (!rawEvent.trim()) return;
+
+  let eventName = "message";
+  const dataLines = [];
+  rawEvent.split("\n").forEach((line) => {
+    if (line.startsWith("event:")) {
+      eventName = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  });
+
+  const payloadText = dataLines.join("\n");
+  let payload = {};
+  if (payloadText) {
+    try {
+      payload = JSON.parse(payloadText);
+    } catch (error) {
+      payload = { text: payloadText };
+    }
+  }
+
+  const handler = handlers[eventName];
+  if (handler) {
+    handler(payload);
+  }
+}
+
+async function sendCourseMessage(message) {
+  const typingBubble = addMessage("assistant", "正在结合当前课程与棋盘分析…", "typing");
+  try {
+    let finalData = null;
+    setAssistantBubbleText(typingBubble, "");
+    await fetchEventStream("/api/course/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    }, {
+      chunk: (payload) => appendAssistantBubbleText(typingBubble, payload.text || ""),
+      replace: (payload) => setAssistantBubbleText(typingBubble, payload.text || ""),
+      done: (payload) => {
+        finalData = payload;
+      },
+    });
+    const finalText = decorateFallbackMessage(finalData?.message || finalData?.error || "没有收到回复。", finalData?.source);
+    setAssistantBubbleText(typingBubble, finalText);
+    typingBubble.classList.remove("typing");
+  } catch (error) {
+    setAssistantBubbleText(typingBubble, `调用失败：${error.message}`);
+    typingBubble.classList.remove("typing");
+  }
+}
+
+async function nextSection() {
+  try {
+    const data = await fetchJson("/api/course/next-section", { method: "POST" });
+    applyState(data.state);
+    appendSectionMessage(data.course_state);
+  } catch (error) {
+    addMessage("assistant", `切换下一节失败：${error.message}`);
+  }
+}
+
+async function exitCourse() {
+  try {
+    const data = await fetchJson("/api/course/stop", { method: "POST" });
+    applyState(data.state);
+    addMessage("assistant", "已退出课程模式，回到自由对弈。");
+  } catch (error) {
+    addMessage("assistant", `退出课程失败：${error.message}`);
+  }
+}
+
 async function onPieceClick(row, col, piece) {
-  if (state.busy || state.winner || state.currentPlayer !== "r") return;
+  if (state.busy || state.winner) return;
 
   if (state.selected) {
     const selectedMove = state.validMoves.find((move) => move.row === row && move.col === col);
@@ -206,7 +446,7 @@ async function onPieceClick(row, col, piece) {
     }
   }
 
-  if (!piece.startsWith("r")) return;
+  if (!piece.startsWith(state.currentPlayer)) return;
 
   if (state.selected && state.selected.row === row && state.selected.col === col) {
     state.selected = null;
@@ -214,6 +454,7 @@ async function onPieceClick(row, col, piece) {
     renderBoard();
     return;
   }
+
   try {
     const data = await fetchJson(`/api/legal-moves?row=${row}&col=${col}`);
     state.selected = { row, col };
@@ -240,21 +481,14 @@ async function onHintClick(toRow, toCol) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!data.ok) {
-      addMessage("assistant", `走子失败：${data.error}`);
-      state.busy = false;
-      await loadState();
-      return;
-    }
-
     await animateEvents(data.events, data.state);
+    maybeAnnounceWinner(data.state);
   } catch (error) {
     addMessage("assistant", `走子失败：${error.message}`);
-    state.busy = false;
     await loadState();
-    return;
+  } finally {
+    state.busy = false;
   }
-  state.busy = false;
 }
 
 async function animateEvents(events, finalState) {
@@ -315,51 +549,57 @@ function animateSingleEvent(event, boardBeforeMove) {
   });
 }
 
-function addMessage(role, text, extraClass = "") {
-  const row = document.createElement("div");
-  row.className = `message-row ${role}`;
-  const bubble = document.createElement("div");
-  bubble.className = `message-bubble ${extraClass}`.trim();
-  bubble.textContent = role === "assistant" ? formatAssistantMessage(text) : text;
-  row.appendChild(bubble);
-  chatMessages.appendChild(row);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-  return bubble;
-}
-
-function formatAssistantMessage(text) {
-  return text
-    .replace(/^#{1,6}\s*/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/^-\s+/gm, "• ")
-    .replace(/`/g, "")
-    .trim();
-}
-
 async function sendMessage() {
   const message = chatInput.value.trim();
   if (!message || state.busy) return;
   chatInput.value = "";
-  addMessage("user", message);
-  const typingBubble = addMessage("assistant", "正在读取当前棋局，并请 Pikafish 与 DeepSeek 一起分析…", "typing");
+  await sendUserMessage(message);
+}
 
+async function sendUserMessage(message) {
+  if (!message || state.busy) return;
+  addMessage("user", message);
   sendBtn.disabled = true;
+  quickAskBtn.disabled = true;
   try {
-    const data = await fetchJson("/api/chat", {
+    if (state.mode === "course") {
+      await sendCourseMessage(message);
+      return;
+    }
+
+    const typingBubble = addMessage("assistant", "正在读取当前棋局，并请 Pikafish 与 Qwen 一起分析…", "typing");
+    let finalData = null;
+    setAssistantBubbleText(typingBubble, "");
+    await fetchEventStream("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
+    }, {
+      chunk: (payload) => appendAssistantBubbleText(typingBubble, payload.text || ""),
+      done: (payload) => {
+        finalData = payload;
+      },
     });
-    typingBubble.textContent = formatAssistantMessage(data.message || data.error || "没有收到回复。");
+    const finalText = decorateFallbackMessage(finalData?.message || finalData?.error || "没有收到回复。", finalData?.source);
+    setAssistantBubbleText(typingBubble, finalText);
     typingBubble.classList.remove("typing");
   } catch (error) {
-    typingBubble.textContent = `调用失败：${error.message}`;
-    typingBubble.classList.remove("typing");
+    addMessage("assistant", `调用失败：${error.message}`);
   } finally {
     sendBtn.disabled = false;
+    quickAskBtn.disabled = false;
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
+}
+
+async function quickAsk() {
+  const prompt = state.mode === "course" ? "请给我一个简短提示。" : "下一步怎么走比较好？";
+  chatInput.value = "";
+  await sendUserMessage(prompt);
+}
+
+function clearChat() {
+  chatMessages.innerHTML = "";
 }
 
 async function resetGame() {
@@ -368,11 +608,12 @@ async function resetGame() {
   try {
     const data = await fetchJson("/api/reset", { method: "POST" });
     applyState(data.state);
-    addMessage("assistant", "棋局已经重新开始。你可以继续问我：现在第一步该怎么走？");
+    addMessage("assistant", state.mode === "course" ? "当前课程节已重置。" : "棋局已经重新开始。");
   } catch (error) {
     addMessage("assistant", `重置失败：${error.message}`);
+  } finally {
+    state.busy = false;
   }
-  state.busy = false;
 }
 
 async function changeLevel() {
@@ -389,10 +630,40 @@ async function changeLevel() {
   }
 }
 
+async function onModeChange() {
+  if (modeSelect.value === "course") {
+    const courseId = courseSelect.value || state.courses[0]?.id;
+    if (!courseId) {
+      addMessage("assistant", "当前没有可用课程。");
+      modeSelect.value = "free";
+      return;
+    }
+    try {
+      await startLesson(courseId);
+    } catch (error) {
+      addMessage("assistant", `启动课程失败：${error.message}`);
+      modeSelect.value = "free";
+    }
+    return;
+  }
+
+  await exitCourse();
+}
+
 drawBoardSvg();
 levelSelect.addEventListener("change", changeLevel);
+modeSelect.addEventListener("change", onModeChange);
+courseSelect.addEventListener("change", async () => {
+  if (state.mode === "course") {
+    await startLesson(courseSelect.value);
+  }
+});
+nextSectionBtn.addEventListener("click", nextSection);
+stopCourseBtn.addEventListener("click", exitCourse);
 resetBtn.addEventListener("click", resetGame);
 sendBtn.addEventListener("click", sendMessage);
+quickAskBtn.addEventListener("click", quickAsk);
+clearChatBtn.addEventListener("click", clearChat);
 chatInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -400,6 +671,10 @@ chatInput.addEventListener("keydown", (event) => {
   }
 });
 
-loadState().then(() => {
-  addMessage("assistant", "你好，我是你的象棋老师。你可以问我：下一步该怎么走、为什么这步最好、现在谁更好。");
-});
+Promise.all([loadCourses(), loadState(), loadCourseState()])
+  .then(() => {
+    addMessage("assistant", "你好，我是你的象棋老师。你可以自由对弈，也可以切换到课程教学模式。");
+  })
+  .catch((error) => {
+    addMessage("assistant", `初始化失败：${error.message}`);
+  });

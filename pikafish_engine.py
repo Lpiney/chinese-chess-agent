@@ -101,9 +101,11 @@ class PikafishEngine:
         5. 等待 "readyok"     → 确认引擎就绪可以接收指令
         """
         with self._lock:
-            # 幂等性：如果已经启动了，直接返回
-            if self.process is not None:
+            # 幂等性：进程仍然活着时直接复用；已退出则重建。
+            if self.process is not None and self.process.poll() is None:
                 return
+            if self.process is not None:
+                self._cleanup_process_unlocked()
 
             # 检查可执行文件是否存在
             if not self.engine_path.exists():
@@ -121,11 +123,15 @@ class PikafishEngine:
             )
 
             # UCI 初始化序列
-            self._send_command("uci")          # 步骤 1
-            self._read_until("uciok")          # 步骤 2
-            self._apply_level_options()        # 步骤 3
-            self._send_command("isready")      # 步骤 4
-            self._read_until("readyok")        # 步骤 5
+            try:
+                self._send_command("uci")          # 步骤 1
+                self._read_until("uciok")          # 步骤 2
+                self._apply_level_options()        # 步骤 3
+                self._send_command("isready")      # 步骤 4
+                self._read_until("readyok")        # 步骤 5
+            except Exception:
+                self._cleanup_process_unlocked()
+                raise
 
     def stop(self) -> None:
         """
@@ -145,9 +151,7 @@ class PikafishEngine:
             # poll() 返回 None 表示进程还在运行，返回整数表示已退出
             if self.process.poll() is None:
                 self.process.terminate()  # 强制终止（发送 SIGTERM）
-                # 注意：这里没有调用 wait()，可能会有短暂的僵尸状态，
-                # 但 Python 的垃圾回收最终会清理
-            self.process = None
+            self._cleanup_process_unlocked()
 
     def new_game(self) -> None:
         """
@@ -156,12 +160,7 @@ class PikafishEngine:
         "ucinewgame" 命令会清空引擎内部的搜索缓存和历史信息，
         让引擎以全新的状态开始分析。
         """
-        self.start()  # 如果还没启动，先启动
-
-        with self._lock:
-            self._send_command("ucinewgame")  # 清空内部状态
-            self._send_command("isready")     # 确认就绪
-            self._read_until("readyok")
+        self._run_with_restart(self._new_game_once)
 
     def set_level(self, level: str) -> None:
         """
@@ -173,14 +172,7 @@ class PikafishEngine:
             raise ValueError("不支持的难度等级。")
         self.level = level
 
-        # 引擎还没启动就不需要发送参数
-        if self.process is None:
-            return
-
-        with self._lock:
-            self._apply_level_options()
-            self._send_command("isready")
-            self._read_until("readyok")
+        self._run_with_restart(self._set_level_once)
 
     # -------------------------------------------------------------------
     # 局面分析与走棋
@@ -220,55 +212,7 @@ class PikafishEngine:
             "pv": ["h2e2", "b7b6"]    # 最优变例（前几步走法序列）
         }
         """
-        # 确保引擎已启动
-        self.start()
-
-        # 获取当前难度配置（搜索深度、思考时间）
-        config = self.LEVEL_CONFIG[self.level]
-
-        with self._lock:
-            # 步骤 1：设置棋盘位置
-            self._send_command(f"position fen {board.to_fen()}")
-
-            # 步骤 2：开始搜索
-            # go depth 9 movetime 400 表示：最多搜索 9 层，最多思考 400 毫秒
-            self._send_command(f"go depth {config['depth']} movetime {config['movetime']}")
-
-            # last_info 存储最后一次收到的 info 行解析结果
-            # 引擎在搜索过程中会不断输出 info 行，每行包含越来越深/越来越准的信息，
-            # 我们只保留最后一次的信息（最深最准）
-            last_info = {
-                "score_type": None,
-                "score_value": None,
-                "depth": None,
-                "pv": [],
-            }
-
-            # 步骤 3-4：循环读取引擎输出，直到收到 bestmove 行
-            while True:
-                line = self._read_line()  # 读一行输出
-
-                if line.startswith("info "):
-                    # info 行示例：info depth 9 score cp 35 pv h2e2 b7b6 ...
-                    parsed = self._parse_info_line(line)
-                    if parsed is not None:
-                        # 用新的非 None 值更新 last_info
-                        # Python 基础知识点：dict.update()
-                        # update 会合并两个字典，新的值覆盖旧的，
-                        # 如果新字典某个 key 的值是 None，不会覆盖
-                        last_info.update(parsed)
-
-                elif line.startswith("bestmove "):
-                    # bestmove 行示例：bestmove h2e2 ponder b7b6
-                    parts = line.split()
-                    bestmove = parts[1]  # "h2e2" 或 "(none)"
-                    return {
-                        "bestmove": None if bestmove == "(none)" else bestmove,
-                        "score_type": last_info["score_type"],
-                        "score_value": last_info["score_value"],
-                        "depth": last_info["depth"],
-                        "pv": last_info["pv"],
-                    }
+        return self._run_with_restart(lambda: self._analyze_position_once(board))
 
     # -------------------------------------------------------------------
     # UCI info 行解析
@@ -344,6 +288,83 @@ class PikafishEngine:
         config = self.LEVEL_CONFIG[self.level]
         self._send_command("setoption name Threads value 1")
         self._send_command(f"setoption name Hash value {config['hash']}")
+
+    def _new_game_once(self) -> None:
+        self.start()
+        with self._lock:
+            self._send_command("ucinewgame")
+            self._send_command("isready")
+            self._read_until("readyok")
+
+    def _set_level_once(self) -> None:
+        self.start()
+        with self._lock:
+            self._apply_level_options()
+            self._send_command("isready")
+            self._read_until("readyok")
+
+    def _analyze_position_once(self, board: ChineseChessBoard) -> dict:
+        self.start()
+        config = self.LEVEL_CONFIG[self.level]
+
+        with self._lock:
+            self._send_command(f"position fen {board.to_fen()}")
+            self._send_command(f"go depth {config['depth']} movetime {config['movetime']}")
+
+            last_info = {
+                "score_type": None,
+                "score_value": None,
+                "depth": None,
+                "pv": [],
+            }
+
+            while True:
+                line = self._read_line()
+                if line.startswith("info "):
+                    parsed = self._parse_info_line(line)
+                    if parsed is not None:
+                        last_info.update(parsed)
+                elif line.startswith("bestmove "):
+                    parts = line.split()
+                    bestmove = parts[1]
+                    return {
+                        "bestmove": None if bestmove == "(none)" else bestmove,
+                        "score_type": last_info["score_type"],
+                        "score_value": last_info["score_value"],
+                        "depth": last_info["depth"],
+                        "pv": last_info["pv"],
+                    }
+
+    def _run_with_restart(self, operation):
+        """操作失败时清理坏进程并自动重试一次。"""
+        try:
+            return operation()
+        except (BrokenPipeError, OSError, RuntimeError, subprocess.SubprocessError):
+            with self._lock:
+                self._cleanup_process_unlocked()
+            return operation()
+
+    def _cleanup_process_unlocked(self) -> None:
+        """关闭并清空当前进程引用。调用者必须已持有锁。"""
+        if self.process is None:
+            return
+        try:
+            if self.process.stdin is not None:
+                self.process.stdin.close()
+        except Exception:
+            pass
+        try:
+            if self.process.stdout is not None:
+                self.process.stdout.close()
+        except Exception:
+            pass
+        try:
+            if self.process.poll() is None:
+                self.process.kill()
+                self.process.wait(timeout=1)
+        except Exception:
+            pass
+        self.process = None
 
     def _send_command(self, command: str) -> None:
         """

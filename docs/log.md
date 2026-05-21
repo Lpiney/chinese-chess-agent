@@ -88,3 +88,49 @@ date: 2026-05-19
 description:
 - 新增 scripts/stop_web.sh，用于停止本地 Web 服务。
 - 更新 README 和 docs/requirements，补充停止服务的方法。
+
+version: 0.7.0
+date: 2026-05-21
+description:
+- 将聊天模型接入从 DeepSeek 配置重构为通用百炼兼容配置，默认模型改为 qwen3.6-max-preview。
+- 新增 llm_client.py，并保留 deepseek_client.py 兼容壳，避免旧导入路径失效。
+- 更新 config.example.yaml、README、env/README 和前端标题文案，统一切换到阿里云百炼 / Qwen 配置说明。
+- 收缩 chess_agent.py 与 course_manager.py 中的系统提示词，只保留必要约束，减少对模型表达和推理的过度限制。
+- 删除课程 JSON 中逐课硬编码的 system_prompt 字段，改为仅保留课程主题、说明和节内容。
+
+version: 0.7.1
+date: 2026-05-21
+description:
+- 将 /api/chat 与 /api/course/chat 改为基于 SSE 的流式输出接口。
+- 更新 static/app.js，新增流式响应解析、聊天气泡增量刷新和课程模式流式渲染逻辑。
+- 保留课程模式的重写与兜底回复机制，但改为在流式完成后统一收尾。
+- 修复流式展示中误把模型 reasoning_content 当作正文输出的问题，侧边栏仅显示最终可见内容。
+
+version: 0.7.2
+date: 2026-05-21
+description:
+- 在 llm_client.py 中默认向百炼兼容接口传入 enable_thinking=false，并关闭 preserve_thinking，降低回复延迟。
+- 更新 config.example.yaml 与 README，明确 qwen3.6-max-preview 默认关闭思考模式。
+
+version: 0.7.3
+date: 2026-05-21
+description:
+- 为棋盘增加 UCI 坐标显示，前端棋盘现在直接显示 a-i 列与 9-0 行，便于和 LLM 回复中的格子名对齐。
+- 在 board_serializer.py 中补充终局状态与坐标说明，并把棋子清单改为同时包含 UCI 坐标和内部 row/col。
+- 在棋盘规则层补充“无合法应法即终局”的判定，使对面笑等将死局面无需吃将也会直接判胜。
+- 调整课程模式与自由模式的状态文案和胜利提示，使课程中走成将死后界面会立即提示本节已结束。
+- 更新 chess_agent.py 与 course_manager.py，在提示词中明确要求模型遇到终局时按终局解释，不再假设对方仍有后续应法。
+- 补充测试，覆盖 FEN 还原、对面笑将死判胜、提示词坐标说明和棋子清单坐标输出。
+
+version: 0.7.4
+date: 2026-05-21
+description:
+- 收窄发给模型的坐标上下文，只保留 UCI 坐标，不再混入 row/col 说明，减少模型自我校对和坐标推导噪音。
+- 在 chess_agent.py 中补充回复清洗逻辑，过滤“修正分析”“重新审视”“Final check”等中间分析痕迹。
+- 收紧聊天输出风格，默认控制在 2 到 4 句内，并下调 max_tokens 以减少冗长回复。
+- 修复课程模式首节理论页显示为标准开局的问题；进入课程后若当前节无 FEN，会优先显示后续最近的课程局面。
+- 在聊天输入区新增“快捷提问”和“清空聊天”按钮，自由对弈和课程模式会自动发送不同的快捷问题。
+- 将课程数据在加载时归一为“课程讲解 + 课后作业”两步，简化课程流程。
+- 调整课程模式走子逻辑，玩家走完后会自动帮对手应招，不再需要手动替对方挪棋。
+- 进一步将棋盘四周坐标标签外移，避免边线棋子遮挡坐标文字。
+- 补充测试，覆盖课程压缩、课程首局面载入和课程模式自动应手。

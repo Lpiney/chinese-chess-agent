@@ -100,6 +100,7 @@ class ChineseChessBoard:
         "bR": "r", "bH": "n", "bE": "b", "bA": "a",
         "bG": "k", "bC": "c", "bS": "p",
     }
+    FEN_PIECES_REVERSE = {value: key for key, value in FEN_PIECES.items()}
 
     # -----------------------------------------------------------------------
     # Python 基础知识点：构造函数 __init__
@@ -261,6 +262,53 @@ class ChineseChessBoard:
         new_board.winner = self.winner
         return new_board
 
+    @classmethod
+    def from_fen(cls, fen: str) -> "ChineseChessBoard":
+        """
+        根据 FEN 字符串创建棋盘。
+
+        只使用前两个字段：
+        1. 棋子布局
+        2. 当前走棋方
+        """
+        parts = fen.strip().split()
+        if len(parts) < 2:
+            raise ValueError("FEN 格式不正确。")
+
+        layout, side_to_move = parts[0], parts[1]
+        rows = layout.split("/")
+        if len(rows) != cls.ROWS:
+            raise ValueError("FEN 行数不正确。")
+
+        board_obj = cls()
+        parsed_board: list[list[str | None]] = []
+        for row_text in rows:
+            parsed_row: list[str | None] = []
+            for char in row_text:
+                if char.isdigit():
+                    parsed_row.extend([None] * int(char))
+                    continue
+                piece = cls.FEN_PIECES_REVERSE.get(char)
+                if piece is None:
+                    raise ValueError(f"FEN 中包含未知棋子：{char}")
+                parsed_row.append(piece)
+            if len(parsed_row) != cls.COLS:
+                raise ValueError("FEN 列数不正确。")
+            parsed_board.append(parsed_row)
+
+        if side_to_move not in {"w", "b"}:
+            raise ValueError("FEN 走棋方字段不正确。")
+
+        red_general_count = sum(cell == "rG" for row in parsed_board for cell in row)
+        black_general_count = sum(cell == "bG" for row in parsed_board for cell in row)
+        if red_general_count != 1 or black_general_count != 1:
+            raise ValueError("FEN 必须恰好包含一个红帅和一个黑将。")
+
+        board_obj.board = parsed_board
+        board_obj.current_player = "r" if side_to_move == "w" else "b"
+        board_obj.winner = None
+        return board_obj
+
     # -------------------------------------------------------------------
     # 合法走法查询
     # -------------------------------------------------------------------
@@ -337,7 +385,7 @@ class ChineseChessBoard:
                     # 临时把自己切换为指定走棋方
                     self.current_player = active_color
                     # 尝试走棋，不合法会抛出 ValueError
-                    self.move_piece(row, col, to_row, to_col)
+                    self.move_piece(row, col, to_row, to_col, evaluate_terminal=False)
                 except ValueError:
                     # 走法不合法，跳过
                     continue
@@ -470,6 +518,10 @@ class ChineseChessBoard:
         # 行: 9→'0', 8→'1', ..., 0→'9'（注意：UCI 行号与棋盘行号是反向的）
         return f"{chr(ord('a') + col)}{9 - row}"
 
+    def coord_to_uci_square(self, row: int, col: int) -> str:
+        """公开的坐标转换接口，供提示词和界面显示使用。"""
+        return self._coord_to_uci_square(row, col)
+
     def _uci_square_to_coord(self, square: str) -> tuple[int, int]:
         """UCI 格子名转单个坐标。例如 "a0" → (9, 0)。"""
         if len(square) != 2:
@@ -484,7 +536,14 @@ class ChineseChessBoard:
     # 核心走子逻辑
     # -------------------------------------------------------------------
 
-    def move_piece(self, from_row: int, from_col: int, to_row: int, to_col: int) -> None:
+    def move_piece(
+        self,
+        from_row: int,
+        from_col: int,
+        to_row: int,
+        to_col: int,
+        evaluate_terminal: bool = True,
+    ) -> None:
         """
         执行一步走棋。这是整个棋盘模块最核心的方法。
 
@@ -548,6 +607,8 @@ class ChineseChessBoard:
             # Python 基础知识点：三元表达式
             # X if 条件 else Y  等价于其他语言的 条件 ? X : Y
             self.current_player = "b" if self.current_player == "r" else "r"
+            if evaluate_terminal and not self.has_any_valid_move(self.current_player):
+                self.winner = piece[0]
 
     # -------------------------------------------------------------------
     # 将军检测

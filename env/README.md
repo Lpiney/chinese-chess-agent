@@ -23,7 +23,7 @@ conda env update -f env/conda-environment.yml --prune
 conda activate chinese-chess-agent
 ```
 
-## DeepSeek 配置
+## 百炼配置
 
 项目运行时实际读取的是根目录下的 `config.yaml`。
 
@@ -33,7 +33,7 @@ conda activate chinese-chess-agent
 cp config.example.yaml config.yaml
 ```
 
-然后填写你自己的 DeepSeek API Key。
+然后填写你自己的阿里云百炼 API Key。
 
 ## Web 运行方式
 

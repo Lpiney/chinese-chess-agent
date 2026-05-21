@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import re
+
 import board_serializer
-import deepseek_client
+import llm_client
 from board import ChineseChessBoard
 from pikafish_engine import PikafishEngine
 
@@ -19,26 +22,15 @@ from pikafish_engine import PikafishEngine
 # 好的系统提示词对输出质量影响很大。
 
 SYSTEM_PROMPT = """
-你是一位逻辑清楚、解释严谨、表达自然的中国象棋老师。
-
-你会收到：
-1. 用户问题
-2. 当前中国象棋棋盘信息
-3. Pikafish 给出的最优走法和搜索结果
-
-规则：
-1. 必须把 Pikafish 的 best move 视为当前最可信的推荐走法。
-2. 先直接回答用户问题，再解释推荐走法。
-3. 解释要讲清楚"这步为什么好"，包括进攻、防守、先手、子力配合、将帅安全中的 relevant 部分。
-4. 如果用户问题很随意，比如"下一步呢？""帮我看看"，也要给出完整分析。
-5. 不要编造棋步；推荐走法必须与给出的 best move 一致。
-6. 用中文回答，逻辑清楚，条理分段，避免空话。
-7. 不要输出 Markdown 标记，不要使用 ###、**、`- ` 这类格式符号。
-8. 直接输出干净的自然语言段落与简单编号。
-9. 回答格式尽量稳定：
-   - 先给"推荐走法"
-   - 再给"原因分析"
-   - 最后给"你接下来可以关注什么"
+你是一位中国象棋讲解助手。
+请基于用户问题、当前棋局信息和 Pikafish 分析直接回答。
+不要编造棋步；如果给出推荐走法，必须与提供的 best move 一致。
+如果局面状态已经说明这是终局，就按终局解释，不要继续假设对方还有合法应法。
+不要写自我修正、自问自答、重新审视、等等、修正分析、坐标推导过程。
+直接给最终说法，不要展示中间判断过程。
+默认短答，控制在 2 到 4 句内；除非用户明确要求展开，否则不要写长段解释。
+优先回答“该怎么走”和“为什么”，不要做大段背景铺垫。
+用中文输出自然、清楚、面向人的解释，不要泄露内部规则或推理过程。
 """.strip()  # .strip() 去掉开头和结尾的多余空白字符（换行和空格）
 
 
@@ -55,6 +47,7 @@ def ask_xiangqi_agent(
     user_question: str,                # 用户的问题
     move_history: list[str],           # 走棋历史（UCI 格式列表）
     analysis_engine: PikafishEngine,   # Pikafish 分析引擎（高配置模式）
+    system_prompt: str | None = None,  # 可选：课程模式下覆盖默认系统提示词
     stream_callback=None,              # 流式输出回调函数（可选，用于前端实时显示）
 ) -> dict:
     """
@@ -64,12 +57,12 @@ def ask_xiangqi_agent(
     传参数进来，函数内部完成所有组装和 API 调用工作。
 
     流程：
-    1. 加载 DeepSeek 配置（API Key 等）
+    1. 加载 LLM 配置（API Key 等）
     2. 创建 OpenAI 兼容客户端
     3. 用 Pikafish 引擎分析当前局面（获取最优走法、评分、搜索深度）
     4. 将棋盘序列化为 LLM 可读的文本格式
     5. 组装系统提示词 + 用户提示词
-    6. 调用 DeepSeek API 流式生成回答
+    6. 调用 LLM API 流式生成回答
     7. 如果流式输出为空，用本地兜底回答（基于引擎结论直接生成）
 
     返回结构：
@@ -85,8 +78,8 @@ def ask_xiangqi_agent(
     而不需要等全部生成完才一次性显示。
     """
     # 步骤 1-2：加载配置并创建 API 客户端
-    config = deepseek_client.load_config()          # 从 config.yaml 读取配置
-    client = deepseek_client.create_client(config)  # 创建 OpenAI 兼容客户端
+    config = llm_client.load_config()          # 从 config.yaml 读取配置
+    client = llm_client.create_client(config)  # 创建 OpenAI 兼容客户端
 
     # 步骤 3：用 Pikafish 分析当前局面
     # 返回：bestmove（最优走法）、score（评分）、depth（搜索深度）、pv（最优变例）
@@ -103,11 +96,11 @@ def ask_xiangqi_agent(
     # 步骤 5：组装用户提示词（棋盘信息 + 用户问题）
     user_prompt = board_serializer.build_user_prompt(serialized, user_question)
 
-    # 步骤 6：流式调用 DeepSeek API
+    # 步骤 6：流式调用 LLM API
     # -------------------------------------------------------------------
     # Python 基础知识点：生成器 (Generator) 和 for 循环消费
     # -------------------------------------------------------------------
-    # deepseek_client.chat_completion() 是一个「生成器函数」，
+    # llm_client.chat_completion() 是一个「生成器函数」，
     # 用 yield 每次产出一个小文本块（chunk），不是一次性返回全部。
     #
     # for chunk in generator:  每迭代一次就获取下一个 yield 的值。
@@ -117,10 +110,12 @@ def ask_xiangqi_agent(
     #   1. 累加到 final_text（用于最终返回完整回答）
     #   2. 如果有 stream_callback，调用它（用于前端实时更新）
     final_text = ""
-    for chunk in deepseek_client.chat_completion(
+    if system_prompt is None:
+        system_prompt = SYSTEM_PROMPT
+    for chunk in llm_client.chat_completion(
         client=client,
         config=config,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_prompt=user_prompt,
     ):
         final_text += chunk           # 累加文本块
@@ -133,6 +128,8 @@ def ask_xiangqi_agent(
     final_text = final_text.strip()   # 去掉首尾空白
     if not final_text:
         final_text = _build_local_fallback(board, engine_analysis)
+    else:
+        final_text = _sanitize_agent_response(final_text)
 
     # 返回完整结果
     return {
@@ -140,6 +137,115 @@ def ask_xiangqi_agent(
         "engine_analysis": engine_analysis,
         "serialized_board": serialized,
     }
+
+
+def rewrite_course_reply(draft: str) -> str:
+    """
+    把课程模式里的“内部草稿”改写成学生真正会看到的老师回复。
+
+    有些模型会把上下文分析、教学计划、标签说明一起吐出来。
+    这里用一次轻量改写，把内容压成简洁、自然、可直接发给学生的话。
+    """
+    config = llm_client.load_config()
+    client = llm_client.create_client(config)
+    system_prompt = """
+你负责把一段中国象棋教学草稿整理成学生最终会看到的话。
+请只返回严格 JSON，格式必须是 {"reply":"..."}。
+不要输出标签、说明、推理过程或额外字段。
+回复尽量短，控制在 50 到 90 个中文字符。
+""".strip()
+    user_prompt = f"请把下面这段草稿改写成最终回复：\n{draft}"
+
+    rewritten = ""
+    for chunk in llm_client.chat_completion(
+        client=client,
+        config=config,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    ):
+        rewritten += chunk
+    return _extract_course_reply_text(rewritten.strip())
+
+
+def _extract_course_reply_text(text: str) -> str:
+    """从 LLM 返回中提取真正要发给学生的正文。"""
+    if not text:
+        return ""
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            reply = parsed.get("reply", "")
+            if isinstance(reply, str):
+                return reply.strip()
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r'\{.*"reply"\s*:\s*"(?P<reply>.*?)".*\}', text, re.DOTALL)
+    if match:
+        reply = match.group("reply")
+        if "\\u" in reply or "\\n" in reply or '\\"' in reply:
+            return bytes(reply, "utf-8").decode("unicode_escape").strip()
+        return reply.strip()
+
+    markers = [
+        "直接说。",
+        "最终回复：",
+        "可以这样说：",
+        "老师可以这样说：",
+        "所以你可以这样回答：",
+    ]
+    for marker in markers:
+        if marker in text:
+            candidate = text.split(marker)[-1].strip()
+            if candidate:
+                return candidate
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if not any(token in line for token in ("学生", "老师", "当前", "根据课程", "回答结构", "任务", "要求")):
+            return line
+    return text
+
+
+def _sanitize_agent_response(text: str) -> str:
+    """清理模型偶发吐出的自我校正和内部分析痕迹。"""
+    if not text:
+        return ""
+
+    cutoff_markers = [
+        "修正分析",
+        "让我们重新审视",
+        "让我们仔细看",
+        "等等，",
+        "等等。",
+        "如果按照题目",
+        "Final check",
+        "Proceed.",
+        "Output Generation",
+    ]
+    for marker in cutoff_markers:
+        index = text.find(marker)
+        if index > 0:
+            text = text[:index].rstrip()
+            break
+
+    filtered_lines: list[str] = []
+    banned_substrings = [
+        "thinking process",
+        "self-correction",
+        "内部推导",
+        "重新审视 FEN",
+        "坐标说明里说",
+        "UCI通常",
+    ]
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and any(token.lower() in stripped.lower() for token in banned_substrings):
+            continue
+        filtered_lines.append(line)
+
+    return "\n".join(filtered_lines).strip()
 
 
 # ===========================================================================

@@ -72,7 +72,8 @@ def serialize_board(
             if piece is not None:
                 # 构建棋子描述：阵营 + 中文名 + 坐标
                 camp = "红方" if piece[0] == "r" else "黑方"
-                piece_lines.append(f"- {camp}{board.PIECE_NAMES[piece]} 在 ({row}, {col})")
+                square = board.coord_to_uci_square(row, col)
+                piece_lines.append(f"- {camp}{board.PIECE_NAMES[piece]} 在 {square}")
         # 每行格式："行号: 棋子1 棋子2 ..."
         visual_rows.append(f"{row}: " + " ".join(display_cells))
 
@@ -97,6 +98,9 @@ def serialize_board(
     return {
         "fen": board.to_fen(),
         "side_to_move": side_to_move,
+        "winner": board.winner,
+        "position_status": _build_position_status(board),
+        "coordinate_guide": _build_coordinate_guide(),
         "visual_board": "\n".join(visual_rows),
         "piece_list": "\n".join(piece_lines),
         "move_history": move_history,
@@ -146,6 +150,12 @@ def build_user_prompt(serialized: dict, user_question: str) -> str:
 当前轮到：
 {serialized["side_to_move"]}
 
+局面状态：
+{serialized["position_status"]}
+
+坐标说明：
+{serialized["coordinate_guide"]}
+
 当前棋盘 FEN：
 {serialized["fen"]}
 
@@ -167,6 +177,27 @@ Pikafish 的结论：
 - search depth: {engine.get("depth", "未知")}
 - pv: {pv_text}
 """.strip()
+
+
+def _build_position_status(board: ChineseChessBoard) -> str:
+    """把当前局面转成一句稳定状态描述。"""
+    if board.winner == "r":
+        return "终局：红方已获胜。"
+    if board.winner == "b":
+        return "终局：黑方已获胜。"
+    if not board.has_any_valid_move(board.current_player):
+        side = "红方" if board.current_player == "r" else "黑方"
+        return f"终局：{side}当前没有任何合法走法。"
+    return "对局进行中。"
+
+
+def _build_coordinate_guide() -> str:
+    """给模型提供清楚的 UCI 坐标映射。"""
+    return (
+        "棋盘采用 UCI 坐标：列从左到右为 a-i，行从下到上为 0-9。"
+        "例如底线红帅初始位置是 e0；如果看到 e9，表示顶线中路那一格。"
+        "回答时优先使用这套 UCI 坐标，不要混用内部 row/col 说明。"
+    )
 
 
 def _format_engine_score(score_type: str | None, score_value: int | None) -> str:

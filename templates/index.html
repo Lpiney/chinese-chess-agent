@@ -11,6 +11,11 @@
       <section class="board-panel">
         <div class="toolbar">
           <div class="toolbar-left">
+            <label for="mode-select">模式</label>
+            <select id="mode-select">
+              <option value="free" selected>自由对弈</option>
+              <option value="course">课程教学</option>
+            </select>
             <label for="level-select">Pikafish 难度</label>
             <select id="level-select">
               <option value="beginner">Beginner</option>
@@ -18,28 +23,39 @@
               <option value="master">Master</option>
             </select>
           </div>
-          <button id="reset-btn">重新开始</button>
+          <div class="toolbar-right">
+            <div id="course-controls" class="hidden">
+              <select id="course-select"></select>
+              <button id="next-section-btn" class="btn-secondary" type="button">下一节</button>
+              <button id="stop-course-btn" class="btn-danger" type="button">退出课程</button>
+            </div>
+            <button id="reset-btn" type="button">重新开始</button>
+          </div>
         </div>
 
         <div class="board-wrap">
-          <svg id="board-svg" viewBox="0 0 620 690" class="board-svg" aria-label="中国象棋棋盘"></svg>
+          <svg id="board-svg" viewBox="0 0 620 740" class="board-svg" aria-label="中国象棋棋盘"></svg>
         </div>
 
         <div id="status-text" class="status-text">正在加载棋局…</div>
-        <div class="board-help">操作方式：点击红方棋子，再点击高亮落点。右侧聊天区可以直接提问。</div>
+        <div class="board-help">操作方式：自由对弈时点击红方棋子并落子；课程模式会把讲解和练习直接显示在右侧聊天区。</div>
       </section>
 
       <aside class="chat-panel">
         <header class="chat-header">
           <div>
-            <h1>DeepSeek 象棋老师</h1>
-            <p>模型：deepseek-v4-flash</p>
+            <h1>Qwen 象棋老师</h1>
+            <p>模型：qwen3.6-max-preview</p>
           </div>
         </header>
 
         <div id="chat-messages" class="chat-messages"></div>
 
         <div class="chat-composer">
+          <div class="chat-actions">
+            <button id="quick-ask-btn" class="btn-secondary" type="button">快捷提问</button>
+            <button id="clear-chat-btn" class="btn-ghost" type="button">清空聊天</button>
+          </div>
           <textarea id="chat-input" placeholder="例如：下一步该怎么走？为什么这步最好？"></textarea>
           <div class="composer-footer">
             <span class="composer-hint">回复会先基于 Pikafish 的当前分析，再由 LLM 解释。</span>

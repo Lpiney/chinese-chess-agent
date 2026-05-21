@@ -236,6 +236,18 @@ class ChineseChessBoardTestCase(unittest.TestCase):
         all_moves = self.board.get_all_valid_moves("r")
         self.assertIn(((6, 0), (5, 0)), all_moves)
 
+    def test_checkmate_position_sets_winner_without_capturing_general(self) -> None:
+        """
+        测试12-1：形成将死时，即使没有吃掉将，也要立刻判胜。
+
+        这是课程里“对面笑”示范局面的核心行为：
+        红车平到 d 线后，黑方无合法应法，应直接判红方获胜。
+        """
+        board = ChineseChessBoard.from_fen("3k5/9/4R4/9/9/9/9/9/9/4K4 w - - 0 1")
+        board.move_piece(2, 4, 2, 3)
+        self.assertEqual(board.winner, "r")
+        self.assertEqual(board.get_all_valid_moves("b"), [])
+
     # ===================================================================
     # 克隆测试
     # ===================================================================
@@ -280,6 +292,19 @@ class ChineseChessBoardTestCase(unittest.TestCase):
             fen,
             "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
         )
+
+    def test_from_fen_round_trip(self) -> None:
+        """to_fen 和 from_fen 应该能互相还原。"""
+        self.board.move_piece(6, 0, 5, 0)
+        fen = self.board.to_fen()
+        restored = ChineseChessBoard.from_fen(fen)
+        self.assertEqual(restored.to_fen(), fen)
+        self.assertEqual(restored.current_player, self.board.current_player)
+
+    def test_from_fen_requires_both_generals(self) -> None:
+        """FEN 中必须同时包含红帅和黑将。"""
+        with self.assertRaisesRegex(ValueError, "恰好包含一个红帅和一个黑将"):
+            ChineseChessBoard.from_fen("9/9/9/9/9/9/9/9/9/4K4 w - - 0 1")
 
     # ===================================================================
     # UCI 坐标转换测试
@@ -343,6 +368,12 @@ class ChineseChessBoardTestCase(unittest.TestCase):
         prompt = board_serializer.build_user_prompt(serialized, "下一步走什么？")
         self.assertIn("下一步走什么", prompt)  # 用户问题必须在提示词中
         self.assertIn("h2e2", prompt)          # 引擎推荐必须在提示词中
+        self.assertIn("UCI 坐标", prompt)
+
+    def test_serialize_board_piece_list_contains_uci_square(self) -> None:
+        """测试19：棋子清单里包含 UCI 坐标，方便模型和界面统一。"""
+        serialized = board_serializer.serialize_board(self.board)
+        self.assertIn("e0", serialized["piece_list"])
 
 
 # ===========================================================================
